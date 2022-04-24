@@ -1,0 +1,30 @@
+.calender-event {
+    position: absolute;
+    display: flex;
+    background-color: white;
+    border: 1px solid #d9d9d9;
+    border-left: none;
+    box-sizing: border-box;
+
+    .vertical-line {
+        height: 100%;
+        width: 5px;
+        background-color: #3973ac;
+    }
+    
+    .description-wrapper {
+        padding: 3px 0 0 3px;
+
+        .title {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: #3973ac;
+        }
+        
+        .sub-title {
+            font-size: 8px;
+            color: #a6a6a6;
+        }
+    }  
+}
