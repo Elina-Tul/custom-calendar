@@ -8,6 +8,7 @@ interface IEnrichedEvent extends IEvent {
   position: number,
   collidingEventsCounter: number,
   connectedEvents: IEvent,
+  space: number
 }
 
 type IConnectedEvent = {
@@ -17,7 +18,14 @@ type IConnectedEvent = {
 
 type EnrichedEvent = { [key: string]: IEnrichedEvent };
 
-type CollidingEventGroup = { [key: string]: IEnrichedEvent }[];
+type Group = {
+  maxLength: number,
+  groupedEvents: {
+    [key: string] : IEnrichedEvent
+  }
+}
+
+type CollidingEventGroup = Group[];
 
 type ConnectedEvent = { [key: string] : IConnectedEvent };
 
@@ -29,6 +37,7 @@ function DailyView({ eventList } : { eventList : IEvent[] }) {
       position: undefined,
       collidingEventsCounter: 0,
       connectedEvents: {},
+      space: 0,
     },
   }), {});
 
@@ -65,7 +74,7 @@ function DailyView({ eventList } : { eventList : IEvent[] }) {
     return eventsCollisionCounter;
   };
 
-  const addCollidingGroups = (events: IEvent[], enrichedEvents : EnrichedEvent) => {
+  const addConnectedEvents = (events: IEvent[], enrichedEvents : EnrichedEvent) => {
     const collidedEventsByMinutesArray = collidedEventsByMinutes(events);
     const collidedEventsCounter = countEventsCollisionPerMinute(collidedEventsByMinutesArray);
 
@@ -97,59 +106,48 @@ function DailyView({ eventList } : { eventList : IEvent[] }) {
   function getCollidingGroups(events: IEvent[], enrichedEvents: EnrichedEvent)
   : CollidingEventGroup {
     const collidedEventsByMinutesArray = collidedEventsByMinutes(events);
-    let group : { [key: string] : IEnrichedEvent } = {};
+    let group : Group = {
+      maxLength: 0,
+      groupedEvents: {},
+    };
+
     const groups : CollidingEventGroup = [];
     collidedEventsByMinutesArray.forEach((collidedEvents) => {
       if (collidedEvents.length) {
         collidedEvents.forEach((collidedEventId) => {
-          enrichedEvents[collidedEventId].collidingEventsCounter = Math.max(
-            enrichedEvents[collidedEventId].collidingEventsCounter,
+          group.maxLength = Math.max(
+            group.maxLength,
             collidedEvents.length,
           );
-          group[collidedEventId] = enrichedEvents[collidedEventId];
+          group.groupedEvents[collidedEventId] = enrichedEvents[collidedEventId];
         });
       } else {
-        if (Object.keys(group).length) {
+        if (Object.keys(group.groupedEvents).length) {
           groups.push(group);
         }
-        group = {};
+        group = {
+          maxLength: 0,
+          groupedEvents: {},
+        };
       }
     });
 
     // If end of minutes but las group not pushed yet
-    if (Object.keys(group).length) {
+    if (Object.keys(group.groupedEvents).length) {
       groups.push(group);
     }
 
     return groups;
   }
 
-  const calculateCollidingEventsCounter = (collidingEventGroups: CollidingEventGroup) => {
-    collidingEventGroups.forEach((collidingEventGroup) => {
-      const maxCollidingEventsCounter = Object.values(collidingEventGroup)
-        .reduce((totalCount, currentCollidingEvent) => Math.max(
-          totalCount,
-          currentCollidingEvent.collidingEventsCounter,
-        ), 0);
-
-      // for (const collidingEventId in collidingEventGroup) {
-      Object.keys(collidingEventGroup).forEach((collidingEventId) => {
-        collidingEventGroup[collidingEventId].collidingEventsCounter = maxCollidingEventsCounter;
-      });
-    });
-  };
-
   const calculateEventPositionIndexes = (
     collidingEventGroups: CollidingEventGroup,
     enrichedEvents: EnrichedEvent,
   ) => {
     collidingEventGroups.forEach((collidingEventGroup) => {
-      const [firstKey] = Object.keys(collidingEventGroup);
-      const { collidingEventsCounter } = collidingEventGroup[firstKey];
-
-      Object.values(collidingEventGroup).forEach((collidingEvent) => {
-        const positionChecker = new Array(collidingEventsCounter);
-        // for (const connectedEventId in enrichedEvents[collidingEvent.id].connectedEvents) {
+      const { groupedEvents, maxLength } = collidingEventGroup;
+      Object.values(groupedEvents).forEach((collidingEvent) => {
+        const positionChecker = new Array(maxLength);
         Object.keys(enrichedEvents[collidingEvent.id].connectedEvents).forEach(
           (connectedEventId) => {
             if (enrichedEvents[connectedEventId].position !== undefined) {
@@ -161,6 +159,7 @@ function DailyView({ eventList } : { eventList : IEvent[] }) {
         for (let i = 0; i < positionChecker.length; i += 1) {
           if (!positionChecker[i]) {
             enrichedEvents[collidingEvent.id].position = i;
+            enrichedEvents[collidingEvent.id].collidingEventsCounter = maxLength;
             break;
           }
         }
@@ -174,15 +173,31 @@ function DailyView({ eventList } : { eventList : IEvent[] }) {
   };
   const getEventWidth = (enrichedEvent : IEnrichedEvent) => {
     const avgEventWidth = TOTAL_WIDTH / enrichedEvent.collidingEventsCounter;
-    return avgEventWidth;
+    return avgEventWidth * enrichedEvent.space;
+  };
+
+  const checkForLeftSpace = (enrichedEvents: EnrichedEvent) => {
+    Object.values(enrichedEvents).forEach((enrichedEvent) => {
+      const arr = new Array(enrichedEvent.collidingEventsCounter);
+      Object.values(enrichedEvent.connectedEvents).forEach((connectedEvent) => {
+        arr[enrichedEvents[connectedEvent.eventId].position] = true;
+      });
+      for (let i = enrichedEvent.position; i < arr.length; i += 1) {
+        if (arr[i]) {
+          break;
+        } else {
+          enrichedEvent.space += 1;
+        }
+      }
+    });
   };
 
   const eventsToCalendarEvents = (events : IEvent[]) => {
     const enrichedEvents = eventEnricher(events);
-    addCollidingGroups(events, enrichedEvents);
+    addConnectedEvents(events, enrichedEvents);
     const collidingEventGroups = getCollidingGroups(events, enrichedEvents);
-    calculateCollidingEventsCounter(collidingEventGroups);
     calculateEventPositionIndexes(collidingEventGroups, enrichedEvents);
+    checkForLeftSpace(enrichedEvents);
     return Object.values(enrichedEvents).map((enrichedEvent) => ({
       ...enrichedEvent,
       left: getEventStartPosition(enrichedEvent),
